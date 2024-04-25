@@ -3,9 +3,10 @@ package main
 // This file will contain the code for testing the blockchain.
 
 import (
-	"blockChain/blockchain"
 	"fmt"
 	"strconv"
+
+	"github.com/NessQQ/blockchain/blockchain"
 )
 
 func main() {
