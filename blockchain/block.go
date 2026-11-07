@@ -14,10 +14,11 @@ import (
 // Transaction represents a transfer of token value within the blockchain ledger.
 // Defining this here eliminates duplicate type errors across other files.
 type Transaction struct {
-	Sender   string  `json:"sender"`
-	Receiver string  `json:"receiver"`
-	Amount   float64 `json:"amount"`
-	Coinbase bool    `json:"coinbase"` // Marked true exclusively for system block rewards
+	Sender   string   `json:"sender"`
+	Receiver string   `json:"receiver"`
+	Amount   float64  `json:"amount"`
+	Coinbase bool     `json:"coinbase"`  // Marked true exclusively for system block rewards
+	Signature string  `json:"signature"` // New field property slot to capture proof vectors
 }
 
 // Block maps the fundamental container unit of the historical ledger array.
