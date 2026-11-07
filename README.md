@@ -1,21 +1,89 @@
-# blockchain
+# Transaction-Aware Proof of Work (PoW) Blockchain Engine
 
-- A blockchain is a distributed ledger that consists of a chain of blocks linked together. They provide benefits such as decentralization, transparency, and enhanced security through cryptographic algorithms.
-- A block is a fundamental blockchain unit that contains a single or a set of transactions or digital records. Each block contains a unique hash generated from its data and the previous block’s hash, forming an immutable chain.
-- Hash functions are vital in a blockchain because they provide data integrity and security. Calculate the hash value based on the block’s data and previous hash using the MD5 hashing algorithm.
-- The very first block in a blockchain is known as a Genesis block. It serves as the foundation of the entire blockchain network and is often created during the initialization of a new blockchain system.
-- Since there are no preceding blocks in the chain, the Genesis block is unique because it does not reference previous blocks.
-- Note: If you modify the data inside a block, its hash will change. Furthermore, this change in the hash will propagate to the subsequent blocks in the blockchain.
-- Blockchain networks employ the proof of work (PoW) consensus algorithm to validate transactions and add new blocks. The PoW algorithm requires miners to solve a complex mathematical puzzle, which requires a lot of computational power to solve, ensuring a secure blockchain network.
-- In the PoW algorithm, you have a target that represents the difficulty level for mining new blocks. It determines the criteria the block’s hash must meet, ensuring that mining requires significant computational work. When a new block is mined, the PoW algorithm repeatedly calculates the hash of the block until it meets the difficulty criteria specified by the target. Miners have to find a hash that, compared to the target, has the required number of leading zeros.
-- In a real-world blockchain implementation, the target for mining a new block is typically adjusted periodically to adapt to changes in the network’s computational power and maintain a consistent block creation rate.
-- Mining involves finding a valid hash for a given block that meets the difficulty criteria specified by the target. One important component in the mining process is the use of a nonce. You’ll start by initializing the data to compute the block’s hash and then perform the mining process. Simulate the mining process by repeatedly computing the hash of the block’s data with different nonces until a hash less than the target is found.
-- The PoW algorithm involves finding a valid block hash that meets a specific target. After running the PoW algorithm and obtaining the nonce, you will use it to derive the hash that meets the target.
-- In a blockchain, a transaction represents data transfer from one participant to another within the network. Transactions generally include data such as the sender’s and receiver’s addresses and the amount or quantity being transferred.
-- When a transaction is initiated, it undergoes validation to ensure its authenticity. Once validated, the transaction is included in a block and added to the blockchain through mining.
-- A coinbase transaction is a special type of transaction that is primarily used to reward miners who successfully mine a new block. It is the first transaction in each block and does not have a specific sender like regular transactions. Instead, it is created by the miner who successfully solves the cryptographic puzzle associated with mining a block. It rewards the miner by specifying the recipient’s address and an amount as a reward for their mining efforts.
-- In blockchain, a wallet is a digital container that stores the cryptographic keys used to access and manage a user’s assets. It consists of a private key and a public key.
-- The public key is shared within the blockchain network and is mainly used to receive funds and verify the authenticity of digital signatures. With a public key, anyone can encrypt data that can only be decrypted by the corresponding private key.
-- The private key is a secret cryptographic key that should be kept secure and known only to the owner. It creates digital signatures, signs transactions, and decrypts data encrypted with the corresponding public key.
-- To ensure security and integrity in a blockchain system, signing and verifying transactions is essential. A transaction is signed using a private key that provides a way to prove the authenticity of the transaction. The sender associates a transaction with their private key by appending a digital signature to a transaction, allowing other participants in the blockchain to verify that the sender authorized the transaction.
-- A transaction is verified using the sender’s public key, ensuring it has not been tampered with since it was signed. The public key is available to all participants and can be used by any participant to verify the signature. If the transaction data has been modified in any way, the verification process will fail, indicating that the transaction has been tampered with.
+An institutional-quality, educational Go blockchain implementation designed to demonstrate core cryptographic consensus principles. This platform integrates asymmetric key pairs, cryptographic wallet infrastructure, digital transaction signing/verification gates, and a deterministic SHA-256 Proof of Work mining engine.
+
+---
+
+## 🏛️ Comprehensive Structural Data Flow Layout
+
+Data in this system moves across strict, decoupled architectural boundaries to guarantee user identity security, transaction authenticity, and immutable ledger integrity.
+
+```unset
+ [PHASE 1: IDENTITY REFS]
+  wallet.go ───> Generates Asymmetric Private/Public Keys
+                      │
+                      ▼
+ [PHASE 2: TX SIGNING LOCK]
+  wallet.go ───> Packs fields into data strings ───> Signs via Private Key ───> Injects "Signature" string into Transaction
+                                                                                         │
+                                                                                         ▼
+ [PHASE 3: CONSENSUS SECURITY GATE]                                                      │
+  blockchain.go ───> Intercepts data blocks ───> Loops over user items ───────────────────┤
+                          │                                                              │
+                          ├───> Skips Coinbase elements (System tokens require no keys)   │
+                          │                                                              │
+                          └───> VerifyTransaction(tx, pubKey, tx.Signature) <────────────┘
+                                     │
+                                     ▼ If signatures match securely:
+ [PHASE 4: IMMUTABLE LEDGER REFINERY]
+  block.go ───> Serializes complete data strings (Fields + Signatures together)
+                     │
+                     ▼
+  proof.go ───> Brute-forces Nonce loop values until matching hash limits are broken ───> Saved into BlockChain arrays
+```
+
+---
+
+## ⚡ Core Technical & Cryptographic Pillars
+
+### 1. Asymmetric Wallet Infrastructure & Identity
+A wallet is a secure cryptographic container that manages user identities on the network utilizing **RSA public/private key pairs**.
+*   **The Private Key:** A strictly guarded secret used to generate unique digital signatures that cryptographically lock and authorize outgoing transfers.
+*   **The Public Key:** Shared freely within the network to serve as a user's address and allow other participating nodes to verify the authenticity of their digital signatures.
+*   **Transaction Signing:** Outbound transactions are serialized into a strict string pattern (`"Sender->Receiver:Amount(Coinbase)"`) and signed using the private key. This appends a unique base64 `Signature` string directly to the transaction payload.
+
+### 2. Consensus Security Gate (Verification)
+Before any transaction is allowed to enter a block or contaminate the ledger array history, it must clear the consensus gate inside `blockchain.go`.
+*   The system uses the sender's public key to decrypt the transaction signature string.
+*   If an attacker attempts a "Man-in-the-Middle" attack by modifying the receiver or the amount after the user signed it, the calculated cryptographic hash will no longer match the signature payload. The transaction is instantly rejected by `VerifyTransaction`.
+
+### 3. The Coinbase Exception
+A **coinbase transaction** is a special type of system transaction used to reward the miner who successfully solves the Proof of Work puzzle (minting a fixed block subsidy reward of 10.0 tokens).
+*   It is always the first transaction in each block and does not have a real sender (the `Sender` field is hardcoded as `"Coinbase"`).
+*   Because the tokens are freshly minted by the system out of thin air and do not represent spending existing user funds, **coinbase transactions do not require a cryptographic signature** and skip the validation loop safely.
+
+### 4. Immutable Block Packaging (SHA-256)
+A block is the fundamental ledger unit that groups transactions together into sequential history.
+*   **Industrial Data Integrity:** This implementation utilizes **SHA-256** (`crypto/sha256`), eliminating weak algorithms like MD5 which suffer from collision vulnerabilities.
+*   **Full Serialization:** The block's identity hash is derived from its metadata headers *and* every single transaction and signature bundled inside it. Altering even a single character or amount inside a block after the fact instantly breaks its hash, propagating an invalid state that corrupts the chain downstream.
+*   **Hex Encoding:** Raw binary hash bytes are securely formatted into clean hexadecimal strings to prevent runtime string-casting character corruption bugs.
+
+### 5. Proof of Work (PoW) Consensus Puzzle
+To securely commit blocks to the network, miners must solve a computational puzzle controlled by a variable named `Difficulty`.
+*   **The Target:** A `big.Int` upper boundary calculated by left-shifting a bit representation. A higher difficulty sets a lower target threshold, requiring the final block hash to begin with a specific number of leading zeros.
+*   **The Nonce:** An incrementing integer variable used by the miner to vary the data string payload. The mining engine (`proof.go`) repeatedly brute-forces hashes with different nonces until it hits a SHA-256 hash value that falls strictly below the target barrier.
+*   **Consensus Audit:** Because hashing is slow but verification is instant, any network participant can call `Validate()` to verify that the miner performed the necessary work simply by passing the single successful nonce.
+
+---
+
+## 🗂️ Project Repository Architecture
+
+```text
+blockchain-project/
+├── blockchain/
+│   ├── block.go          # Block schemas, full transaction serialization, and SHA-256 hashing
+│   ├── proof.go          # Big integer targets, Difficulty settings, and brute-force MineBlock loops
+│   ├── blockchain.go     # Ledger state coordination, coinbase distribution, and consensus gates
+│   └── wallet.go         # RSA key generation, base64 transaction signing and signature verification
+├── go.mod
+└── main.go               # Orchestration runner launcher
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)**. 
+
+### Reciprocity Requirements
+Under the terms of the AGPL-3.0, if you modify this codebase or integrate it into a platform hosted over a network interface (including cloud APIs or private backend infrastructure), **you are legally bound to make your entire, modified server-side source code publicly available for free**. See the `LICENSE` file for full disclosures.
