@@ -1,99 +1,104 @@
+// Copyright (C) 2026 Lenar Khabibulin <khabibulin.lenar@gmail.com>
+// Licensed under the GNU Affero General Public License v3 (AGPL-3.0)
 package blockchain
 
-// This file will contain the logic for the proof of work (PoW) algorithm.
+// This file handles the cryptographic mining puzzle metrics and block validation routines.
 
 import (
 	"bytes"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 )
 
-// Define a variable called Difficulty that represents the desired difficulty level for mining new blocks.
-const Difficulty = 10
+// Difficulty sets the leading zero-bit requirement for our mining puzzle.
+// A setting of 10-14 runs rapidly on test machines for fast development cycles.
+const Difficulty = 12
 
 type ProofOfWork struct {
-	// The block to be validated
-	Block *Block
-	// The difficulty level for mining
+	Block  *Block
 	Target *big.Int
 }
 
-// Consensus algorithm to validate transactions and add new blocks. Takes a block as its parameter and returns a new ProofOfWork instance.
+// NewProofOfWork calculates the maximum integer upper bound target based on system Difficulty rules.
 func NewProofOfWork(block *Block) *ProofOfWork {
-	// Initialize a target variable with a value of 1.
 	targetVal := big.NewInt(1)
-	// Left shift the target’s value by (256 - Difficulty) bits. This sets the difficulty level.
+	
+	// Left shift a 1 by (256 - Difficulty) bits.
+	// As difficulty rises, the target cap falls, making it harder to find a matching hash.
 	targetVal.Lsh(targetVal, uint(256-Difficulty))
-	// Return a newly created ProofOfWork instance by assigning the block and target values.
+	
 	return &ProofOfWork{block, targetVal}
 }
 
-// Function that takes an integer nonce as a parameter and returns the prepared data for hashing the block.
+// ComputeData aggregates all mutable block fields and every single transaction into a single byte stream.
 func (pow *ProofOfWork) ComputeData(nonce int) []byte {
-	// Concatenate the hash of the previous block and the data contained within the current block.
-	data := bytes.Join(
-		[][]byte{
-			[]byte(pow.Block.PrevHash),
-			[]byte(pow.Block.Data),
-			make([]byte, 8),
-			make([]byte, 8),
-		},
-		[]byte{},
-	)
-	// Concatenate the data from above with the nonce value.
-	binary.BigEndian.PutUint64(data[len(data)-16:], uint64(nonce))
-	// Concatenate the data from above with the difficulty level.
-	binary.BigEndian.PutUint64(data[len(data)-8:], uint64(Difficulty))
-	// Return the prepared data for hashing the block
-	return data
+	// Pre-allocate binary safe buffers for our custom integer configurations
+	nonceBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(nonceBytes, uint64(nonce))
+
+	diffBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(diffBytes, uint64(Difficulty))
+
+	// Dynamically size our allocation slice to avoid runtime growth copies:
+	// 4 Core fields (PrevHash, Data, Nonce, Difficulty) + total transaction footprint
+	components := make([][]byte, 0, 4+len(pow.Block.Transactions))
+	components = append(components, []byte(pow.Block.PrevHash))
+	components = append(components, []byte(pow.Block.Data))
+	components = append(components, nonceBytes)
+	components = append(components, diffBytes)
+
+	// CRITICAL SYNCHRONIZATION POINT: We iterate through every transaction inside the block
+	// using the exact same format signature string as block.go's ComputeHash() method.
+	for _, tx := range pow.Block.Transactions {
+		txString := fmt.Sprintf("%s->%s:%f(%t)", tx.Sender, tx.Receiver, tx.Amount, tx.Coinbase)
+		components = append(components, []byte(txString))
+	}
+
+	return bytes.Join(components, []byte{})
 }
 
-// Function that performs the mining process to find a valid block hash that meets the target.
-func (pow *ProofOfWork) MineBlock() (int, []byte) {
-	// Integer value of the computed hash.
+// MineBlock executes the brute-force search routine, iterating nonces until it hits a valid SHA-256 target footprint.
+func (pow *ProofOfWork) MineBlock() (int, string) {
 	var intHash big.Int
-	// Computed hash byte slice.
-	var computedHash [16]byte
-	// Initialize a variable nonce with a value of 0.
+	var computedHash [32]byte // Upgraded to 32 bytes to cleanly house SHA-256 calculations
 	nonce := 0
-	// Loop that runs until a valid block hash is found.
+
+	fmt.Printf("⛏️  Mining block containing %d transaction(s)...\n", len(pow.Block.Transactions))
+
 	for {
-		// Call the ComputeData function with the current nonce value to obtain the data for hashing.
 		computedData := pow.ComputeData(nonce)
-		// Compute the hash of the data using the md5.Sum() function.
-		computedHash = md5.Sum(computedData)
-		// Print the computed hash.
-		fmt.Printf("\r%x", computedHash)
-		// Integer value of the computed hash set to an integer representation of the computed hash byte slice.
+		computedHash = sha256.Sum256(computedData)
+		
+		// Print real-time rolling hex sequences cleanly over a single line (\r)
+		fmt.Printf("\rCurrent Mining Hash Candidate: %x", computedHash)
+
 		intHash.SetBytes(computedHash[:])
-		// Check if the computed hash value is less than the target defined for the PoW algorithm and if it is, break the loop because a valid block hash has been found.
+
+		// Check if the big integer hash representation falls beneath our strict target barrier
 		if intHash.Cmp(pow.Target) == -1 {
 			break
 		}
-		// Increment the nonce to continue searching for a valid hash.
+		
 		nonce++
 	}
-	fmt.Println()
-	// Return the nonce and the valid computed hash.
-	return nonce, computedHash[:]
+	
+	fmt.Printf("\n🎉 Block Successfully Mined! Discovered Nonce: %d\n\n", nonce)
+	
+	// Return the final successful values to be recorded inside the block context
+	return nonce, hex.EncodeToString(computedHash[:])
 }
 
-// Function that validates the derived hash and essentially validates the work done by the PoW algorithm. It takes no parameters and returns a boolean value indicating the validity of the derived hash.
+// Validate provides our lightning-fast consensus verification check step.
 func (pow *ProofOfWork) Validate() bool {
-	// Integer value of the computed hash.
 	var intHash big.Int
-	// Call the ComputeData function with the block’s nonce value to obtain the data for hashing.
+
 	computedData := pow.ComputeData(pow.Block.Nonce)
-	// Compute the hash of the data using the md5.Sum() function.
-	computedHash := md5.Sum(computedData)
-	// Integer value of the computed hash set to an integer representation of the computed hash byte slice.
+	computedHash := sha256.Sum256(computedData)
+	
 	intHash.SetBytes(computedHash[:])
-	// Return true if the derived hash is less than the target, a valid hash, and false otherwise.
-	if intHash.Cmp(pow.Target) == -1 {
-		return true
-	} else {
-		return false
-	}
+
+	return intHash.Cmp(pow.Target) == -1
 }

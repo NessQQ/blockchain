@@ -1,6 +1,8 @@
+// Copyright (C) 2026 Lenar Khabibulin <khabibulin.lenar@gmail.com>
+// Licensed under the GNU Affero General Public License v3 (AGPL-3.0)
 package blockchain
 
-// This file will contain the logic for managing user wallets.
+// This file handles the logic for user cryptographic wallets, asymmetric key generation, and identity signatures.
 
 import (
 	"crypto"
@@ -12,83 +14,76 @@ import (
 	"fmt"
 )
 
-// Wallet is a digital container that stores the cryptographic keys used to access and manage a user’s assets.
+// Wallet stores the cryptographic keys used to access balances and sign outgoing transactions.
 type Wallet struct {
-	// Creates digital signatures, signs transactions, and decrypts data encrypted with the corresponding public key.
 	PrivateKey *rsa.PrivateKey
-	// Mainly used to receive funds and verify the authenticity of digital signatures.
-	PublicKey *rsa.PublicKey
+	PublicKey  *rsa.PublicKey
 }
 
-// It generates a pair of RSA public and private keys.
+// GenerateRSAKeys provisions a fresh asymmetric identity pair.
 func GenerateRSAKeys() (*rsa.PrivateKey, *rsa.PublicKey, error) {
+	// A 2048-bit key size is mathematically secure and highly performant for local simulation loops
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-
 	if err != nil {
 		return nil, nil, err
 	}
 
 	publicKey := &privateKey.PublicKey
-
 	return privateKey, publicKey, nil
 }
 
-// Function that creates a new wallet instance.
+// NewWallet creates an isolated user identity container.
 func NewWallet() (*Wallet, error) {
-	// It calls the GenerateRSAKeys function to obtain the private and public keys.
 	privateKey, publicKey, err := GenerateRSAKeys()
-
 	if err != nil {
 		return nil, err
 	}
 
-	// It creates and returns a new Wallet struct and assigns the generated private and public keys to the respective attributes.
 	return &Wallet{
 		PrivateKey: privateKey,
 		PublicKey:  publicKey,
 	}, nil
 }
 
-// Function that takes a transaction pointer as an argument
+// SignTransaction accepts an outbound payment order, computes its payload signature,
+// and saves the resulting base64 string directly onto the transaction container.
 func (wallet *Wallet) SignTransaction(transaction *Transaction) (string, error) {
-	// It generates a data string by concatenating the sender, receiver, amount, and transaction’s coinbase fields.
-	dataString := fmt.Sprintf("%s%s%f%t", transaction.Sender, transaction.Receiver, transaction.Amount, transaction.Coinbase)
+	// FIX: Synchronized to use the exact same layout signature format applied inside block.go and proof.go
+	dataString := fmt.Sprintf("%s->%s:%f(%t)", transaction.Sender, transaction.Receiver, transaction.Amount, transaction.Coinbase)
 
-	// It hashes the generated data string.
 	hashedData := sha256.Sum256([]byte(dataString))
 
-	// It signs the hashed data using the current wallet’s private key and obtains the signature.
+	// Sign the SHA-256 hash using the user's private key
 	signature, err := rsa.SignPKCS1v15(rand.Reader, wallet.PrivateKey, crypto.SHA256, hashedData[:])
-
 	if err != nil {
 		return "", err
 	}
 
-	// It encodes the signature as a base64 string and returns the encoded signature.
-	return base64.StdEncoding.EncodeToString(signature), nil
+	base64Signature := base64.StdEncoding.EncodeToString(signature)
+	
+	// Store the generated signature directly inside the transaction so it travels through the blocks natively
+	transaction.Signature = base64Signature
+
+	return base64Signature, nil
 }
 
-// Function that takes a transaction, a public key, and a signature string as arguments.
+// VerifyTransaction checks if a provided signature matches the immutable transaction properties.
 func VerifyTransaction(transaction *Transaction, publicKey *rsa.PublicKey, signature string) error {
-	// It generates a data string by concatenating the sender, receiver, amount, and transaction’s coinbase fields.
-	dataString := fmt.Sprintf("%s%s%f%t", transaction.Sender, transaction.Receiver, transaction.Amount, transaction.Coinbase)
+	// FIX: Must match the signature format exactly to generate matching hash evaluations
+	dataString := fmt.Sprintf("%s->%s:%f(%t)", transaction.Sender, transaction.Receiver, transaction.Amount, transaction.Coinbase)
 
-	// It hashes the generated data string.
 	hashedData := sha256.Sum256([]byte(dataString))
 
-	// It decodes the signature string to obtain the signature bytes.
 	signatureBytes, err := base64.StdEncoding.DecodeString(signature)
-
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to decode base64 signature string: %w", err)
 	}
 
-	// It verifies the signature using the provided public key.
+	// Validate the cryptographic proof against the owner's public key
 	err = rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hashedData[:], signatureBytes)
-
-	// It returns nil if the signature is valid and an error if the signature is invalid.
 	if err != nil {
-		return errors.New("Transaction Signature not valid")
+		return errors.New("transaction signature verification failed: invalid cryptographic proof")
 	}
+	
 	return nil
 }

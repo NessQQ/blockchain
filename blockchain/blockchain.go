@@ -1,42 +1,62 @@
+// Copyright (C) 2026 Lenar Khabibulin <khabibulin.lenar@gmail.com>
+// Licensed under the GNU Affero General Public License v3 (AGPL-3.0)
 package blockchain
 
-// This file will contain the logic for implementing the blockchain.
+import (
+	"crypto/rsa"
+	"errors"
+	"log"
+	"fmt"
+)
 
 type BlockChain struct {
-	// This slice of Block pointers representing the blocks in the blockchain.
 	Blocks []*Block
 }
 
-// Function to create the Genesis block and initialize a new blockchain with it. It takes no arguments and returns a pointer to a BlockChain object containing Genesis block.
 func InitBlockChain() *BlockChain {
-	// Create the Genesis block using the Genesis function, then create and return a new BlockChain object and initialize the Blocks attribute with a slice containing only the Genesis block.
 	return &BlockChain{[]*Block{Genesis()}}
 }
 
-// Function to add a block to a blockcahin. It takes the data to be added in a block as an argument.
-func (chain *BlockChain) AddBlock(data string, coinbaseRcpt string, transactions []*Transaction) {
-	// Get the previous block in the blockchain.
+// AddBlock now acts as a strict security clearinghouse. 
+// It requires an explicit map of Public Keys to cross-reference and validate transaction signatures 
+// before letting them contaminate the immutable ledger array history.
+func (chain *BlockChain) AddBlock(data string, coinbaseRcpt string, transactions []*Transaction, publicKeys map[string]*rsa.PublicKey) error {
 	prevBlock := chain.Blocks[len(chain.Blocks)-1]
+	
+	// 1. SECURITY GATEWAY: Validate every single incoming transaction signature
+	for _, tx := range transactions {
+		// System-minted coinbase transactions don't have user signatures, skip them safely
+		if tx.Coinbase {
+			continue
+		}
+
+		// Fetch the sender's public key from our trusted network registry map
+		pubKey, exists := publicKeys[tx.Sender]
+		if !exists {
+			return errors.New("security violation: transaction rejected - sender public key not found in network registry")
+		}
+
+		// Execute your wallet module's validation algorithms directly at the chain boundary gate
+		err := VerifyTransaction(tx, pubKey, tx.Signature)
+		if err != nil {
+			log.Printf("⚠️  Fraudulent transaction blocked! Sender: %s attempted unauthorized transfer.", tx.Sender)
+			return fmt.Errorf("transaction verification failed: %w", err)
+		}
+	}
+
+	// 2. MINT COINBASE REWARD: If all user signatures clear validation, safely mint the mining subsidy block reward
 	coinbaseTransaction := &Transaction{
 		Sender:   "Coinbase",
 		Receiver: coinbaseRcpt,
 		Amount:   10.0,
 		Coinbase: true,
 	}
-	// Create a new block using the data and the previous hash using the CreateBlock function. It passes the data and the previous block’s hash as arguments.
-	newBlock := CreateBlock(data, prevBlock.Hash, append([]*Transaction{coinbaseTransaction}, transactions...))
-	// Append the newly created block to the Blocks attribute of the blockchain.
+	
+	fullTransactionSet := append([]*Transaction{coinbaseTransaction}, transactions...)
+	
+	// 3. MINE AND CHAIN: Pass the validated data bundle down into the SHA-256 MineBlock loop
+	newBlock := CreateBlock(data, prevBlock.Hash, fullTransactionSet)
 	chain.Blocks = append(chain.Blocks, newBlock)
-}
-
-// Structure for transactions.
-type Transaction struct {
-	// The sender’s address.
-	Sender string
-	// The receiver’s address.
-	Receiver string
-	// The amount being transferred.
-	Amount float64
-	// Indicator of whether the transaction is a coinbase transaction or not.
-	Coinbase bool
+	
+	return nil
 }
