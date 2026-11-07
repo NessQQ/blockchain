@@ -6,94 +6,123 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"log"
+
 	"github.com/NessQQ/blockchain/blockchain"
+	"github.com/NessQQ/blockchain/exchange"
 )
 
 func main() {
-	fmt.Println("============ BLOCKCHAIN TESTING ENGINE ============")
+	fmt.Println("================== BLOCKCHAIN TESTING ENGINE ==================")
 
-	// 1. Initialize a clean, trusted Network Public Key Registry.
-	// In a real distributed system, nodes exchange public keys to verify inbound sender claims.
+	// 1. Initialize our Blockchain public key registry context
 	networkPublicKeys := make(map[string]*rsa.PublicKey)
 
-	// 2. Instantiate individual user cryptographic wallets (Alice and Bob)
-	fmt.Println("\n🔑 Generating secure 2048-bit RSA keys for network participants...")
-	
+	// 2. Generate secure identities (Wallets) for our market participants
+	fmt.Println("\n🔑 Generating cryptographic wallet keypairs for Alice and Bob...")
+
 	aliceWallet, err := blockchain.NewWallet()
 	if err != nil {
-		log.Fatalf("Fatal: Failed to generate Alice's wallet keys: %v", err)
+		log.Fatalf("Fatal: Failed to provision Alice's identity: %v", err)
 	}
-	// Alice's wallet address string is represented by her unique public key structure pointer
 	aliceAddress := fmt.Sprintf("%p", aliceWallet.PublicKey)
 	networkPublicKeys[aliceAddress] = aliceWallet.PublicKey
-	fmt.Printf("[Registry] Alice Wallet Activated. Address: %s\n", aliceAddress)
+	fmt.Printf("[Wallet] Alice Initialized. Network Address: %s\n", aliceAddress)
 
 	bobWallet, err := blockchain.NewWallet()
 	if err != nil {
-		log.Fatalf("Fatal: Failed to generate Bob's wallet keys: %v", err)
+		log.Fatalf("Fatal: Failed to provision Bob's identity: %v", err)
 	}
 	bobAddress := fmt.Sprintf("%p", bobWallet.PublicKey)
 	networkPublicKeys[bobAddress] = bobWallet.PublicKey
-	fmt.Printf("[Registry] Bob Wallet Activated.   Address: %s\n", bobAddress)
+	fmt.Printf("[Wallet] Bob Initialized.   Network Address: %s\n", bobAddress)
 
-	// 3. Initialize the sequential ledger tracking chain (Processes the Genesis block instantly)
-	fmt.Println("\n⚙️  Bootstrapping Blockchain Ledger Architecture...")
+	// 3. Bootstrap our settlement structures and state engines
+	fmt.Println("\n⚙️  Initializing In-Memory Order Book and Blockchain Ledger...")
+	book := exchange.NewOrderBook()
 	chain := blockchain.InitBlockChain()
-	
-	// Print Genesis block characteristics to confirm hex string encoding formatting success
-	genesisBlock := chain.Blocks[0]
-	fmt.Printf("✔ Genesis Block Created! Hash: %s\n", genesisBlock.Hash)
-	fmt.Printf("  Initial Transaction: %s -> %s (%f coins, Coinbase: %t)\n", 
-		genesisBlock.Transactions[0].Sender, 
-		genesisBlock.Transactions[0].Receiver, 
-		genesisBlock.Transactions[0].Amount, 
-		genesisBlock.Transactions[0].Coinbase,
-	)
 
-	// 4. Construct a standard Peer-to-Peer payment transaction order (Alice transfers funds to Bob)
-	fmt.Println("\n💸 Constructing outbound transaction: Alice sending 4.5 tokens to Bob...")
-	tx := &blockchain.Transaction{
-		Sender:   aliceAddress,
-		Receiver: bobAddress,
-		Amount:   4.5,
-		Coinbase: false,
+	// 4. Populate the matching engine book with passive liquidity (Maker Orders)
+	fmt.Println("\n📥 Bob places a passive MAKER Sell Order on the book ladder...")
+	makerOrder := &exchange.Order{
+		ID:        "ORDER-001",
+		WalletID:  bobAddress,
+		Side:      exchange.Sell,
+		Price:     90000.0,
+		Amount:    2.5,
+		FilledQty: 0.0,
+	}
+	// Processing this order queues it safely inside Bob's Ask PriceLevel list since no bids match yet
+	book.ProcessOrder(makerOrder)
+	fmt.Printf("[Order Book] Ask PriceLevel active at $%0.2f (Volume: %0.2f tokens)\n", makerOrder.Price, makerOrder.Remaining())
+
+	// 5. Inject an aggressive cross-market order (Taker Order) to trigger immediate matching
+	fmt.Println("\n⚡ Alice fires an aggressive TAKER Buy Order hitting Bob's price tier...")
+	takerOrder := &exchange.Order{
+		ID:        "ORDER-002",
+		WalletID:  aliceAddress,
+		Side:      exchange.Buy,
+		Price:     90000.0,
+		Amount:    1.5, // Alice buys 1.5 out of Bob's 2.5 tokens available
+		FilledQty: 0.0,
 	}
 
-	// 5. SIGN PHASE: Lock transaction data payload using Alice's private key
-	fmt.Println("✍️  Signing transaction payload with Alice's private key context...")
-	signature, err := aliceWallet.SignTransaction(tx)
+	// EXECUTE IN-MEMORY MATCHING: The FIFO pipeline crosses the order parameters instantly
+	tradeLogs := book.ProcessOrder(takerOrder)
+
+	if len(tradeLogs) == 0 {
+		log.Fatalf("Fatal Error: Trade matching engine failed to calculate crossing parameters.")
+	}
+
+	fmt.Printf("🎯 Match Found! Matched Volume: %0.2f tokens at $%0.2f\n", tradeLogs[0].Amount, tradeLogs[0].Price)
+
+	// 6. BRIDGE LAYER: Convert memory trade logs into cryptographically signed ledger transactions
+	fmt.Println("\n🔗 Converting trade execution reports into secure blockchain transactions...")
+	var signedMempool []*blockchain.Transaction
+
+	for _, trade := range tradeLogs {
+		// Map our internal memory matching entities directly to the blockchain.Transaction schema structures
+		tx := &blockchain.Transaction{
+			Sender:   aliceAddress,               // Taker Buyer transfers token capital value
+			Receiver: bobAddress,                 // Maker Seller receives funds
+			Amount:   trade.Amount * trade.Price, // Total transaction value size in fiat/USDT units
+			Coinbase: false,
+		}
+
+		// Secure the movement explicitly using Alice's private key wallet signature routines
+		fmt.Println("✍️  Signing settlement ledger frame using Alice's private wallet keys...")
+		_, err := aliceWallet.SignTransaction(tx)
+		if err != nil {
+			log.Fatalf("Fatal Error: Transaction signing loop failed: %v", err)
+		}
+
+		signedMempool = append(signedMempool, tx)
+	}
+
+	// 7. SETTLEMENT LAYER: Clear transactions through the consensus gate and mine the block
+	fmt.Println("\n📥 Dispatching signed transactions context into BlockChain.AddBlock clearinghouse...")
+
+	// Bob acts as the network block miner and intercepts the standard Coinbase block reward
+	minerRecipient := bobAddress
+	err = chain.AddBlock("Settlement Block: Engine Matches Clear", minerRecipient, signedMempool, networkPublicKeys)
 	if err != nil {
-		log.Fatalf("Fatal: Transaction signing routine failed: %v", err)
-	}
-	fmt.Printf("✔ Digital Signature Generated! Base64 Segment: %s...\n", signature[:30])
-
-	// 6. CHAIN INJECTION: Group the transaction and attempt to mine a new block
-	// We pass the transaction along with our public key registry map so the chain can run its security gate checks
-	fmt.Println("\n📥 Submitting transaction bundle to BlockChain.AddBlock gateway...")
-	
-	// Miner address for block rewards is assigned to Bob's address string marker
-	minerAddress := bobAddress
-	err = chain.AddBlock("Block 1 Data: Payment Processing", minerAddress, []*blockchain.Transaction{tx}, networkPublicKeys)
-	if err != nil {
-		log.Fatalf("❌ Block rejected at the validation gate: %v", err)
+		log.Fatalf("❌ Block settlement failed validation tests: %v", err)
 	}
 
-	// 7. VERIFICATION MATRIX: Audit the newly appended block state values
+	// 8. TOTAL LEDGER METRIC AUDIT LOG
 	minedBlock := chain.Blocks[len(chain.Blocks)-1]
-	fmt.Println("===============================================================")
-	fmt.Printf("📦 Mined Block Index:  %d\n", len(chain.Blocks)-1)
-	fmt.Printf("🔒 Block Identifier:   %s\n", minedBlock.Hash)
-	fmt.Printf("🔗 Link to Parent:     %s\n", minedBlock.PrevHash)
-	fmt.Printf("🔢 Winning Nonce:      %d\n", minedBlock.Nonce)
-	fmt.Printf("🧾 Total Transactions: %d\n", len(minedBlock.Transactions))
-	
-	// Double check that the coinbase transaction block reward printed correctly as element 0
-	cbTx := minedBlock.Transactions[0]
-	userTx := minedBlock.Transactions[1]
-	fmt.Printf("   -> Tx 0 (Reward):  %s minted %0.2f tokens to Miner (%s)\n", cbTx.Sender, cbTx.Amount, cbTx.Receiver[:12])
-	fmt.Printf("   -> Tx 1 (Payment): %s transferred %0.2f tokens to %s\n", userTx.Sender[:12], userTx.Amount, userTx.Receiver[:12])
-	fmt.Printf("      Cryptographic Signature Proof: [Valid Asset Pass]\n")
-	fmt.Println("===============================================================")
-	
-	fmt.Println("\n✨ System execution pipeline completed successfully. Code compilation pristine.")
+	fmt.Println("\n=================== SYSTEM STATE SETTLEMENT AUDIT ===================")
+	fmt.Printf("📦 Confirmed Block Index: %d\n", len(chain.Blocks)-1)
+	fmt.Printf("🔒 Block Cryptographic ID: %s\n", minedBlock.Hash)
+	fmt.Printf("🔗 Hex Link to Parent:    %s\n", minedBlock.PrevHash)
+	fmt.Printf("🔢 Derived Miner Nonce:   %d\n", minedBlock.Nonce)
+	fmt.Printf("🧾 Total Transactions:    %d\n", len(minedBlock.Transactions))
+
+	cb := minedBlock.Transactions[0]
+	settledTx := minedBlock.Transactions[1]
+	fmt.Printf("   -> Tx 0 [Mint]:   %s awarded %0.1f coins to Miner (%s...)\n", cb.Sender, cb.Amount, cb.Receiver[:10])
+	fmt.Printf("   -> Tx 1 [Settle]: %s paid $%0.2f USDT to %s...\n", settledTx.Sender[:10], settledTx.Amount, settledTx.Receiver[:10])
+	fmt.Printf("      Cryptographic Proof: [Signature Verified - Ledger Sealed Immutably]\n")
+	fmt.Println("=====================================================================")
+
+	fmt.Println("\n✨ Comprehensive pipeline execution complete. Low-latency logic loop pristine.")
 }
